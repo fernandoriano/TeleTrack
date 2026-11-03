@@ -1,0 +1,144 @@
+services:
+
+  database:
+    image: postgres:17
+
+    container_name: teletrack-postgres
+
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+
+    ports:
+      - "5432:5432"
+
+    volumes:
+      - teletrack_data:/var/lib/postgresql/data
+
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+    restart: unless-stopped
+
+
+  migrate:
+    build:
+      context: ./backend
+
+    container_name: teletrack-migrate
+
+    env_file:
+      - .env
+
+    command:
+      [
+        "alembic",
+        "-c",
+        "alembic.ini",
+        "upgrade",
+        "head"
+      ]
+
+    depends_on:
+      database:
+        condition: service_healthy
+
+    restart: "no"
+
+
+  api:
+    build:
+      context: ./backend
+
+    container_name: teletrack-api
+
+    env_file:
+      - .env
+
+    ports:
+      - "8000:8000"
+
+    depends_on:
+      database:
+        condition: service_healthy
+
+      migrate:
+        condition: service_completed_successfully
+
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/health').read()"
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+    restart: unless-stopped
+
+
+  processor:
+    build:
+      context: ./processor
+
+    container_name: teletrack-processor
+
+    env_file:
+      - .env
+
+    depends_on:
+      database:
+        condition: service_healthy
+
+      migrate:
+        condition: service_completed_successfully
+
+    restart: unless-stopped
+
+
+  frontend:
+    build:
+      context: ./frontend
+
+    container_name: teletrack-frontend
+
+    ports:
+      - "8080:80"
+
+    depends_on:
+      api:
+        condition: service_healthy
+
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--quiet",
+          "--tries=1",
+          "--spider",
+          "http://127.0.0.1/"
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+    restart: unless-stopped
+
+
+volumes:
+  teletrack_data:
