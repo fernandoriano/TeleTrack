@@ -1,0 +1,101 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: database
+  namespace: teletrack
+spec:
+  selector:
+    app: database
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+  type: ClusterIP
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: database
+  namespace: teletrack
+spec:
+  serviceName: database
+  replicas: 1
+
+  selector:
+    matchLabels:
+      app: database
+
+  template:
+    metadata:
+      labels:
+        app: database
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:17
+
+          ports:
+            - containerPort: 5432
+
+          env:
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: teletrack-secrets
+                  key: POSTGRES_DB
+
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: teletrack-secrets
+                  key: POSTGRES_USER
+
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: teletrack-secrets
+                  key: POSTGRES_PASSWORD
+
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "768Mi"
+
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+            initialDelaySeconds: 5
+            periodSeconds: 10
+
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+            initialDelaySeconds: 20
+            periodSeconds: 20
+
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+
+  volumeClaimTemplates:
+    - metadata:
+        name: postgres-data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+
+        storageClassName: local-path
+
+        resources:
+          requests:
+            storage: 10Gi

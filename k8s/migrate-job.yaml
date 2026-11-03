@@ -1,0 +1,31 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: teletrack-migrate
+  namespace: teletrack
+spec:
+  backoffLimit: 4
+
+  template:
+    metadata:
+      labels:
+        app: teletrack-migrate
+
+    spec:
+      restartPolicy: OnFailure
+
+      containers:
+        - name: migrate
+          image: ghcr.io/fernandoriano/teletrack-api:latest
+
+          command:
+            - alembic
+            - -c
+            - alembic.ini
+            - upgrade
+            - head
+
+          envFrom:
+            - secretRef:
+                name: teletrack-secrets
+                

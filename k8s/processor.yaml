@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: processor
+  namespace: teletrack
+spec:
+  replicas: 1
+
+  strategy:
+    type: Recreate
+
+  selector:
+    matchLabels:
+      app: processor
+
+  template:
+    metadata:
+      labels:
+        app: processor
+
+    spec:
+      containers:
+        - name: processor
+          image: ghcr.io/fernandoriano/teletrack-processor:latest
+
+          imagePullPolicy: Always
+
+          envFrom:
+            - secretRef:
+                name: teletrack-secrets
+
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+
+            limits:
+              cpu: "250m"
+              memory: "256Mi"
