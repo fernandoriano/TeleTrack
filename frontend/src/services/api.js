@@ -18,6 +18,7 @@ export async function apiRequest(endpoint, options = {}) {
   });
 
   let data = null;
+
   const contentType = response.headers.get("content-type");
 
   if (contentType && contentType.includes("application/json")) {
@@ -26,13 +27,12 @@ export async function apiRequest(endpoint, options = {}) {
 
   if (!response.ok) {
     const message =
-      data?.detail ||
-      `Error HTTP ${response.status}: ${response.statusText}`;
+      data?.detail || `Error HTTP ${response.status}`;
 
     throw new Error(
       typeof message === "string"
         ? message
-        : JSON.stringify(message)
+        : JSON.stringify(message),
     );
   }
 
