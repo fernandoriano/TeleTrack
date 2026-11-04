@@ -14,8 +14,33 @@ import {
 } from "../../services/vehicleService";
 
 import {
-  getLatestLocation
+  getLatestLocation,
+  getVehicleHistory
 } from "../../services/telemetryService";
+
+
+function getTodayRange() {
+  const now =
+    new Date();
+
+  const start =
+    new Date(now);
+
+  start.setHours(
+    0,
+    0,
+    0,
+    0
+  );
+
+  return {
+    start:
+      start.toISOString(),
+
+    end:
+      now.toISOString()
+  };
+}
 
 
 export default function Locations() {
@@ -48,30 +73,71 @@ export default function Locations() {
       const vehicles =
         await getVehicles();
 
+      const {
+        start,
+        end
+      } = getTodayRange();
+
+
       const results =
         await Promise.all(
           vehicles.map(
             async (vehicle) => {
+              let location = null;
+              let history = null;
+
+
               try {
-                const location =
+                location =
                   await getLatestLocation(
                     vehicle.id
                   );
 
-                return {
-                  vehicle,
-                  location
-                };
+              } catch {
+                location = null;
+              }
+
+
+              try {
+                history =
+                  await getVehicleHistory(
+                    vehicle.id,
+                    start,
+                    end
+                  );
 
               } catch {
-                return {
-                  vehicle,
-                  location: null
-                };
+                history = null;
               }
+
+
+              const routePoints =
+                Array.isArray(
+                  history?.locations
+                )
+                  ? [
+                      ...history.locations
+                    ].sort(
+                      (a, b) =>
+                        new Date(
+                          a.timestamp
+                        ) -
+                        new Date(
+                          b.timestamp
+                        )
+                    )
+                  : [];
+
+
+              return {
+                vehicle,
+                location,
+                routePoints
+              };
             }
           )
         );
+
 
       setLocations(results);
 
@@ -110,9 +176,36 @@ export default function Locations() {
               color: "#64748b"
             }}
           >
-            Consulta la última ubicación registrada
-            de cada vehículo autorizado.
+            Consulta la ubicación actual y la
+            ruta recorrida durante el día por
+            cada vehículo autorizado.
           </p>
+
+
+          <button
+            type="button"
+            onClick={loadLocations}
+            disabled={loading}
+            style={{
+              marginTop: "10px",
+              padding: "9px 14px",
+              border: "none",
+              borderRadius: "9px",
+              fontWeight: 700,
+              cursor:
+                loading
+                  ? "not-allowed"
+                  : "pointer",
+              background: "#2563eb",
+              color: "#ffffff"
+            }}
+          >
+            {
+              loading
+                ? "Actualizando..."
+                : "Actualizar rutas"
+            }
+          </button>
         </div>
 
 
@@ -146,7 +239,8 @@ export default function Locations() {
                 background: "#ffffff",
                 padding: "22px",
                 borderRadius: "14px",
-                border: "1px solid #e2e8f0"
+                border:
+                  "1px solid #e2e8f0"
               }}
             >
               No hay vehículos disponibles.
@@ -159,7 +253,8 @@ export default function Locations() {
           locations.map(
             ({
               vehicle,
-              location
+              location,
+              routePoints
             }) => (
               <article
                 key={vehicle.id}
@@ -175,7 +270,8 @@ export default function Locations() {
                 <div
                   style={{
                     display: "flex",
-                    alignItems: "flex-start",
+                    alignItems:
+                      "flex-start",
                     justifyContent:
                       "space-between",
                     gap: "16px",
@@ -208,10 +304,13 @@ export default function Locations() {
                     </div>
                   </div>
 
+
                   <span
                     style={{
-                      padding: "7px 12px",
-                      borderRadius: "999px",
+                      padding:
+                        "7px 12px",
+                      borderRadius:
+                        "999px",
                       fontSize: "13px",
                       fontWeight: 700,
                       background:
@@ -237,8 +336,10 @@ export default function Locations() {
                   <div
                     style={{
                       padding: "20px",
-                      borderRadius: "12px",
-                      background: "#f8fafc",
+                      borderRadius:
+                        "12px",
+                      background:
+                        "#f8fafc",
                       color: "#64748b"
                     }}
                   >
@@ -308,6 +409,41 @@ export default function Locations() {
                         }
                         unit="°"
                       />
+
+                      <InfoCard
+                        label="Puntos de ruta hoy"
+                        value={
+                          routePoints.length
+                        }
+                      />
+                    </div>
+
+
+                    <div
+                      style={{
+                        marginBottom: "12px",
+                        padding:
+                          "12px 14px",
+                        borderRadius: "10px",
+                        background:
+                          routePoints.length >= 2
+                            ? "#eff6ff"
+                            : "#f8fafc",
+                        color:
+                          routePoints.length >= 2
+                            ? "#1d4ed8"
+                            : "#64748b",
+                        fontSize: "14px",
+                        fontWeight: 600
+                      }}
+                    >
+                      {
+                        routePoints.length >= 2
+                          ? `Ruta de hoy: ${routePoints.length} posiciones conectadas en orden cronológico.`
+                          : routePoints.length === 1
+                            ? "Hoy solamente hay una posición registrada. Se necesitan al menos dos puntos para dibujar una ruta."
+                            : "Todavía no hay posiciones registradas hoy para dibujar una ruta."
+                      }
                     </div>
 
 
@@ -329,6 +465,9 @@ export default function Locations() {
                       }
                       altitude={
                         location.altitude
+                      }
+                      routePoints={
+                        routePoints
                       }
                     />
 

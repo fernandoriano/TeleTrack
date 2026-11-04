@@ -1,8 +1,15 @@
 import {
+  useEffect
+} from "react";
+
+import {
+  CircleMarker,
   MapContainer,
   Marker,
+  Polyline,
   Popup,
-  TileLayer
+  TileLayer,
+  useMap
 } from "react-leaflet";
 
 import L from "leaflet";
@@ -28,18 +35,92 @@ L.Icon.Default.mergeOptions({
 });
 
 
+function FitMapToRoute({
+  positions,
+  fallbackPosition
+}) {
+  const map = useMap();
+
+  useEffect(() => {
+    if (positions.length >= 2) {
+      const bounds =
+        L.latLngBounds(positions);
+
+      map.fitBounds(
+        bounds,
+        {
+          padding: [35, 35],
+          maxZoom: 17
+        }
+      );
+
+      return;
+    }
+
+    if (fallbackPosition) {
+      map.setView(
+        fallbackPosition,
+        15
+      );
+    }
+  }, [
+    map,
+    positions,
+    fallbackPosition
+  ]);
+
+  return null;
+}
+
+
 export default function VehicleMap({
   latitude,
   longitude,
   vehicleCode,
   plate,
   speed,
-  altitude
+  altitude,
+  routePoints = []
 }) {
   const position = [
-    latitude,
-    longitude
+    Number(latitude),
+    Number(longitude)
   ];
+
+
+  const validRoutePoints =
+    routePoints
+      .map((point) => ({
+        ...point,
+        latitude:
+          Number(point.latitude),
+        longitude:
+          Number(point.longitude)
+      }))
+      .filter(
+        (point) =>
+          Number.isFinite(
+            point.latitude
+          ) &&
+          Number.isFinite(
+            point.longitude
+          )
+      );
+
+
+  const routePositions =
+    validRoutePoints.map(
+      (point) => [
+        point.latitude,
+        point.longitude
+      ]
+    );
+
+
+  const firstPoint =
+    validRoutePoints.length > 0
+      ? validRoutePoints[0]
+      : null;
 
 
   return (
@@ -49,7 +130,8 @@ export default function VehicleMap({
         height: "420px",
         borderRadius: "14px",
         overflow: "hidden",
-        border: "1px solid #e2e8f0"
+        border:
+          "1px solid #e2e8f0"
       }}
     >
       <MapContainer
@@ -66,6 +148,60 @@ export default function VehicleMap({
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
 
+
+        <FitMapToRoute
+          positions={routePositions}
+          fallbackPosition={position}
+        />
+
+
+        {routePositions.length >= 2 && (
+          <Polyline
+            positions={routePositions}
+            pathOptions={{
+              color: "#2563eb",
+              weight: 5,
+              opacity: 0.85
+            }}
+          />
+        )}
+
+
+        {firstPoint && (
+          <CircleMarker
+            center={[
+              firstPoint.latitude,
+              firstPoint.longitude
+            ]}
+            radius={9}
+            pathOptions={{
+              color: "#166534",
+              fillColor: "#22c55e",
+              fillOpacity: 1,
+              weight: 3
+            }}
+          >
+            <Popup>
+              <div>
+                <strong>
+                  Inicio de la ruta de hoy
+                </strong>
+
+                {firstPoint.timestamp && (
+                  <>
+                    <br />
+
+                    {new Date(
+                      firstPoint.timestamp
+                    ).toLocaleString()}
+                  </>
+                )}
+              </div>
+            </Popup>
+          </CircleMarker>
+        )}
+
+
         <Marker
           position={position}
         >
@@ -78,7 +214,8 @@ export default function VehicleMap({
               <br />
 
               Placa: {
-                plate || "Sin placa"
+                plate ||
+                "Sin placa"
               }
 
               <br />
@@ -92,6 +229,12 @@ export default function VehicleMap({
               Altitud: {
                 altitude ?? "—"
               }
+
+              <br />
+
+              <strong>
+                Posición actual
+              </strong>
             </div>
           </Popup>
         </Marker>
