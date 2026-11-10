@@ -258,7 +258,8 @@ class VehicleActivationRequest(BaseModel):
 
     activation_secret: str = Field(
         min_length=8,
-        max_length=128
+        max_length=8,
+        pattern=r"^[A-Za-z0-9]{8}$"
     )
 
     device_name: str | None = Field(

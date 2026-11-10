@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 import hashlib
 import secrets
+import string
 
 from sqlalchemy.orm import Session
 
@@ -20,7 +21,9 @@ def authenticate_user(
 ) -> models.User | None:
     user = (
         db.query(models.User)
-        .filter(models.User.username == username)
+        .filter(
+            models.User.username == username
+        )
         .first()
     )
 
@@ -53,7 +56,9 @@ def generate_refresh_token() -> str:
     return secrets.token_urlsafe(48)
 
 
-def hash_token(token: str) -> str:
+def hash_token(
+    token: str
+) -> str:
     return hashlib.sha256(
         token.encode("utf-8")
     ).hexdigest()
@@ -72,7 +77,8 @@ def create_refresh_token(
     expires_at = (
         datetime.now(timezone.utc)
         + timedelta(
-            days=settings.refresh_token_expire_days
+            days=
+                settings.refresh_token_expire_days
         )
     )
 
@@ -149,7 +155,15 @@ def revoke_refresh_token(
 
 
 def generate_activation_secret() -> str:
-    return secrets.token_urlsafe(24)
+    alphabet = (
+        string.ascii_uppercase
+        + string.digits
+    )
+
+    return "".join(
+        secrets.choice(alphabet)
+        for _ in range(8)
+    )
 
 
 def hash_activation_secret(

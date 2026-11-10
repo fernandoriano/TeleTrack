@@ -50,6 +50,18 @@ export async function updateVehicle(
 }
 
 
+export async function deleteVehicle(
+  vehicleId
+) {
+  return apiRequest(
+    `/api/v1/vehicles/${vehicleId}`,
+    {
+      method: "DELETE"
+    }
+  );
+}
+
+
 export async function regenerateActivationSecret(
   vehicleId
 ) {

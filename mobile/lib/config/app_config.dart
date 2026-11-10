@@ -5,10 +5,14 @@ class AppConfig {
   );
 
   static const Duration transmissionInterval = Duration(
-    seconds: 15,
+    seconds: 30,
   );
 
   static const Duration requestTimeout = Duration(
     seconds: 15,
+  );
+
+  static const Duration gpsTimeout = Duration(
+    seconds: 12,
   );
 }

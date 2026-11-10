@@ -97,7 +97,6 @@ def create_vehicle(
     db.add(device)
 
     db.commit()
-
     db.refresh(vehicle)
 
     return vehicle, activation_secret
@@ -265,3 +264,61 @@ def regenerate_activation_secret(
     db.commit()
 
     return activation_secret
+
+
+def delete_vehicle(
+    db: Session,
+    vehicle_id: int
+) -> None:
+
+    vehicle = get_vehicle_by_id(
+        db=db,
+        vehicle_id=vehicle_id
+    )
+
+    try:
+        (
+            db.query(models.VehicleStats)
+            .filter(
+                models.VehicleStats.vehicle_id
+                == vehicle_id
+            )
+            .delete(
+                synchronize_session=False
+            )
+        )
+
+        (
+            db.query(models.Location)
+            .filter(
+                models.Location.vehicle_id
+                == vehicle_id
+            )
+            .delete(
+                synchronize_session=False
+            )
+        )
+
+        (
+            db.query(models.VehicleDevice)
+            .filter(
+                models.VehicleDevice.vehicle_id
+                == vehicle_id
+            )
+            .delete(
+                synchronize_session=False
+            )
+        )
+
+        db.delete(vehicle)
+        db.commit()
+
+    except Exception:
+        db.rollback()
+
+        raise HTTPException(
+            status_code=
+                status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=
+                "Vehicle could not be deleted"
+        )

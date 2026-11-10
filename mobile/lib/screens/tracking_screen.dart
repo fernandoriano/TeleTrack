@@ -8,6 +8,7 @@ import '../services/api_service.dart';
 import '../services/location_service.dart';
 import '../services/secure_storage_service.dart';
 
+
 class TrackingScreen extends StatefulWidget {
   final VoidCallback onDeactivated;
 
@@ -21,8 +22,10 @@ class TrackingScreen extends StatefulWidget {
       _TrackingScreenState();
 }
 
+
 class _TrackingScreenState
     extends State<TrackingScreen> {
+
   final ApiService _apiService =
       ApiService();
 
@@ -31,6 +34,7 @@ class _TrackingScreenState
 
   final SecureStorageService _storage =
       SecureStorageService();
+
 
   Timer? _timer;
 
@@ -45,8 +49,12 @@ class _TrackingScreenState
   Position? _lastPosition;
 
   DateTime? _lastTransmission;
+  DateTime? _nextTransmission;
+
+  int _transmissionCount = 0;
 
   String? _error;
+
 
   @override
   void initState() {
@@ -54,6 +62,7 @@ class _TrackingScreenState
 
     _loadDevice();
   }
+
 
   Future<void> _loadDevice() async {
     final vehicleCode =
@@ -69,11 +78,18 @@ class _TrackingScreenState
     });
   }
 
+
   Future<void> _startTracking() async {
+    if (_tracking) {
+      return;
+    }
+
     setState(() {
       _error = null;
       _status =
           'Validando GPS...';
+      _transmissionCount = 0;
+      _nextTransmission = null;
     });
 
     try {
@@ -87,27 +103,37 @@ class _TrackingScreenState
       setState(() {
         _tracking = true;
         _status =
-            'Telemetría activa';
+            'Iniciando telemetría...';
       });
 
+
+      // Primer envío inmediato.
       await _sendCurrentPosition();
 
-      _timer?.cancel();
 
-      _timer = Timer.periodic(
-        AppConfig.transmissionInterval,
-        (_) {
-          _sendCurrentPosition();
-        },
-      );
+      // Los siguientes envíos se programan
+      // únicamente después de terminar
+      // el envío anterior.
+      if (_tracking) {
+        _scheduleNextTransmission();
+      }
+
     } catch (error) {
+      _timer?.cancel();
+      _timer = null;
+
       if (!mounted) {
         return;
       }
 
       setState(() {
         _tracking = false;
-        _status = 'GPS detenido';
+        _sending = false;
+        _nextTransmission = null;
+
+        _status =
+            'GPS detenido';
+
         _error = error
             .toString()
             .replaceFirst(
@@ -118,6 +144,42 @@ class _TrackingScreenState
     }
   }
 
+
+  void _scheduleNextTransmission() {
+    if (!_tracking) {
+      return;
+    }
+
+    _timer?.cancel();
+
+    final next =
+        DateTime.now().add(
+      AppConfig.transmissionInterval,
+    );
+
+    if (mounted) {
+      setState(() {
+        _nextTransmission = next;
+      });
+    }
+
+    _timer = Timer(
+      AppConfig.transmissionInterval,
+      () async {
+        if (!_tracking) {
+          return;
+        }
+
+        await _sendCurrentPosition();
+
+        if (_tracking) {
+          _scheduleNextTransmission();
+        }
+      },
+    );
+  }
+
+
   void _stopTracking() {
     _timer?.cancel();
     _timer = null;
@@ -125,43 +187,72 @@ class _TrackingScreenState
     setState(() {
       _tracking = false;
       _sending = false;
+      _nextTransmission = null;
+
       _status =
           'Transmisión detenida';
     });
   }
 
-  Future<void>
-      _sendCurrentPosition() async {
-    if (_sending) {
+
+  Future<void> _sendCurrentPosition() async {
+    if (!_tracking || _sending) {
       return;
     }
 
     _sending = true;
+
+    if (mounted) {
+      setState(() {
+        _status =
+            'Obteniendo ubicación GPS...';
+      });
+    }
+
 
     try {
       final token =
           await _storage
               .getDeviceToken();
 
-      if (token == null ||
-          token.isEmpty) {
+      if (
+        token == null ||
+        token.isEmpty
+      ) {
         throw Exception(
           'No existe un token de dispositivo.',
         );
       }
 
+
       final position =
           await _locationService
               .getCurrentPosition();
+
+
+      if (!_tracking) {
+        return;
+      }
+
+
+      if (mounted) {
+        setState(() {
+          _status =
+              'Enviando telemetría...';
+        });
+      }
+
 
       await _apiService.sendLocation(
         deviceToken: token,
         position: position,
       );
 
+
       if (!mounted) {
         return;
       }
+
 
       setState(() {
         _lastPosition = position;
@@ -169,11 +260,15 @@ class _TrackingScreenState
         _lastTransmission =
             DateTime.now();
 
+        _transmissionCount++;
+
         _status =
-            'Telemetría enviada';
+            'Telemetría activa';
 
         _error = null;
       });
+
+
     } catch (error) {
       if (!mounted) {
         return;
@@ -190,13 +285,14 @@ class _TrackingScreenState
               '',
             );
       });
+
     } finally {
       _sending = false;
     }
   }
 
-  Future<void>
-      _deactivateDevice() async {
+
+  Future<void> _deactivateDevice() async {
     _stopTracking();
 
     await _storage.clearDevice();
@@ -208,6 +304,45 @@ class _TrackingScreenState
     widget.onDeactivated();
   }
 
+
+  String _formatTime(
+    DateTime? dateTime,
+  ) {
+    if (dateTime == null) {
+      return '-';
+    }
+
+    final local =
+        dateTime.toLocal();
+
+    final hour =
+        local.hour
+            .toString()
+            .padLeft(
+              2,
+              '0',
+            );
+
+    final minute =
+        local.minute
+            .toString()
+            .padLeft(
+              2,
+              '0',
+            );
+
+    final second =
+        local.second
+            .toString()
+            .padLeft(
+              2,
+              '0',
+            );
+
+    return '$hour:$minute:$second';
+  }
+
+
   Widget _metricCard({
     required String title,
     required String value,
@@ -217,37 +352,45 @@ class _TrackingScreenState
     return Container(
       padding:
           const EdgeInsets.all(18),
+
       decoration: BoxDecoration(
         color: Colors.white,
+
         borderRadius:
             BorderRadius.circular(16),
+
         border: Border(
           top: BorderSide(
             color: color,
             width: 4,
           ),
         ),
+
         boxShadow: const [
           BoxShadow(
-            color: Color(
-              0x10000000,
-            ),
+            color:
+                Color(0x10000000),
             blurRadius: 14,
-            offset: Offset(0, 6),
+            offset:
+                Offset(0, 6),
           ),
         ],
       ),
+
       child: Column(
         crossAxisAlignment:
             CrossAxisAlignment.start,
+
         children: [
           Icon(
             icon,
             color: color,
           ),
+
           const SizedBox(
             height: 12,
           ),
+
           Text(
             title,
             style:
@@ -256,9 +399,11 @@ class _TrackingScreenState
                   Color(0xFF64748B),
             ),
           ),
+
           const SizedBox(
             height: 6,
           ),
+
           Text(
             value,
             style:
@@ -275,13 +420,16 @@ class _TrackingScreenState
     );
   }
 
+
   @override
   void dispose() {
     _timer?.cancel();
+
     _apiService.dispose();
 
     super.dispose();
   }
+
 
   @override
   Widget build(
@@ -307,41 +455,56 @@ class _TrackingScreenState
             ? '-'
             : '${_lastPosition!.heading.toStringAsFixed(0)}°';
 
+
     return Scaffold(
       backgroundColor:
           const Color(0xFFF3F6FA),
+
       appBar: AppBar(
         backgroundColor:
             const Color(0xFF0F172A),
+
         foregroundColor:
             Colors.white,
+
         title:
-            const Text('TeleTrack Mobile'),
+            const Text(
+          'TeleTrack Mobile',
+        ),
+
         actions: [
           IconButton(
             tooltip:
                 'Desactivar dispositivo',
+
             onPressed:
                 _deactivateDevice,
-            icon: const Icon(
+
+            icon:
+                const Icon(
               Icons.logout,
             ),
           ),
         ],
       ),
+
+
       body:
           SingleChildScrollView(
         padding:
             const EdgeInsets.all(20),
+
         child: Column(
           crossAxisAlignment:
-              CrossAxisAlignment
-                  .stretch,
+              CrossAxisAlignment.stretch,
+
           children: [
+
             Container(
               padding:
                   const EdgeInsets
                       .all(22),
+
               decoration:
                   BoxDecoration(
                 gradient:
@@ -355,71 +518,81 @@ class _TrackingScreenState
                     ),
                   ],
                 ),
+
                 borderRadius:
                     BorderRadius
-                        .circular(
-                  18,
-                ),
+                        .circular(18),
               ),
+
               child: Column(
                 crossAxisAlignment:
                     CrossAxisAlignment
                         .start,
+
                 children: [
+
                   const Text(
                     'Vehículo',
-                    style: TextStyle(
+                    style:
+                        TextStyle(
                       color:
                           Colors.white70,
                     ),
                   ),
+
                   const SizedBox(
                     height: 5,
                   ),
+
                   Text(
                     _vehicleCode,
+
                     style:
                         const TextStyle(
                       color:
                           Colors.white,
                       fontSize: 30,
                       fontWeight:
-                          FontWeight
-                              .bold,
+                          FontWeight.bold,
                     ),
                   ),
+
                   const SizedBox(
                     height: 20,
                   ),
+
                   Row(
                     children: [
                       Icon(
                         _tracking
-                            ? Icons
-                                .gps_fixed
-                            : Icons
-                                .gps_off,
-                        color: _tracking
-                            ? const Color(
-                                0xFF86EFAC,
-                              )
-                            : const Color(
-                                0xFFFCA5A5,
-                              ),
+                            ? Icons.gps_fixed
+                            : Icons.gps_off,
+
+                        color:
+                            _tracking
+                                ? const Color(
+                                    0xFF86EFAC,
+                                  )
+                                : const Color(
+                                    0xFFFCA5A5,
+                                  ),
                       ),
+
                       const SizedBox(
                         width: 8,
                       ),
+
                       Expanded(
                         child: Text(
                           _status,
+
                           style:
                               const TextStyle(
                             color:
                                 Colors.white,
+
                             fontWeight:
-                                FontWeight
-                                    .bold,
+                                FontWeight.bold,
                           ),
                         ),
                       ),
@@ -428,29 +601,33 @@ class _TrackingScreenState
                 ],
               ),
             ),
-            if (_error !=
-                null) ...[
+
+
+            if (_error != null) ...[
               const SizedBox(
                 height: 16,
               ),
+
               Container(
                 padding:
                     const EdgeInsets
                         .all(14),
+
                 decoration:
                     BoxDecoration(
                   color:
                       const Color(
                     0xFFFEE2E2,
                   ),
+
                   borderRadius:
                       BorderRadius
-                          .circular(
-                    12,
-                  ),
+                          .circular(12),
                 ),
+
                 child: Text(
                   _error!,
+
                   style:
                       const TextStyle(
                     color:
@@ -461,18 +638,29 @@ class _TrackingScreenState
                 ),
               ),
             ],
+
+
             const SizedBox(
               height: 20,
             ),
+
+
             GridView.count(
               crossAxisCount: 2,
+
               shrinkWrap: true,
+
               physics:
                   const NeverScrollableScrollPhysics(),
+
               crossAxisSpacing: 14,
+
               mainAxisSpacing: 14,
+
               childAspectRatio: 1.25,
+
               children: [
+
                 _metricCard(
                   title:
                       'Velocidad',
@@ -484,6 +672,7 @@ class _TrackingScreenState
                     0xFF2563EB,
                   ),
                 ),
+
                 _metricCard(
                   title:
                       'Altitud',
@@ -495,6 +684,7 @@ class _TrackingScreenState
                     0xFF16A34A,
                   ),
                 ),
+
                 _metricCard(
                   title:
                       'Precisión',
@@ -506,8 +696,10 @@ class _TrackingScreenState
                     0xFF7C3AED,
                   ),
                 ),
+
                 _metricCard(
-                  title: 'Rumbo',
+                  title:
+                      'Rumbo',
                   value: heading,
                   icon:
                       Icons.navigation,
@@ -518,115 +710,171 @@ class _TrackingScreenState
                 ),
               ],
             ),
+
+
             const SizedBox(
               height: 20,
             ),
+
+
             Container(
               padding:
-                  const EdgeInsets
-                      .all(18),
+                  const EdgeInsets.all(18),
+
               decoration:
                   BoxDecoration(
-                color: Colors.white,
+                color:
+                    Colors.white,
+
                 borderRadius:
                     BorderRadius
-                        .circular(
-                  16,
-                ),
+                        .circular(16),
               ),
+
               child: Column(
                 crossAxisAlignment:
                     CrossAxisAlignment
                         .start,
+
                 children: [
+
                   const Text(
-                    'Última transmisión',
+                    'Estado de transmisión',
+
                     style:
                         TextStyle(
-                      color:
-                          Color(
-                        0xFF64748B,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(
-                    height: 7,
-                  ),
-                  Text(
-                    _lastTransmission ==
-                            null
-                        ? 'Sin transmisiones'
-                        : _lastTransmission!
-                            .toLocal()
-                            .toString(),
-                    style:
-                        const TextStyle(
                       fontWeight:
                           FontWeight.bold,
-                      fontSize: 17,
+                      fontSize: 18,
                     ),
                   ),
-                  if (_lastPosition !=
-                      null) ...[
+
+
+                  const SizedBox(
+                    height: 14,
+                  ),
+
+
+                  Text(
+                    'Intervalo: '
+                    '${AppConfig.transmissionInterval.inSeconds} segundos',
+                  ),
+
+
+                  const SizedBox(
+                    height: 8,
+                  ),
+
+
+                  Text(
+                    'Envíos realizados: '
+                    '$_transmissionCount',
+                  ),
+
+
+                  const SizedBox(
+                    height: 8,
+                  ),
+
+
+                  Text(
+                    'Último envío: '
+                    '${_formatTime(_lastTransmission)}',
+                  ),
+
+
+                  const SizedBox(
+                    height: 8,
+                  ),
+
+
+                  Text(
+                    'Próximo envío: '
+                    '${_formatTime(_nextTransmission)}',
+                  ),
+
+
+                  if (
+                    _lastPosition != null
+                  ) ...[
+
                     const SizedBox(
-                      height: 12,
+                      height: 14,
                     ),
+
                     Text(
-                      'Lat: ${_lastPosition!.latitude.toStringAsFixed(6)}',
+                      'Lat: '
+                      '${_lastPosition!.latitude.toStringAsFixed(6)}',
                     ),
+
                     Text(
-                      'Lon: ${_lastPosition!.longitude.toStringAsFixed(6)}',
+                      'Lon: '
+                      '${_lastPosition!.longitude.toStringAsFixed(6)}',
                     ),
                   ],
                 ],
               ),
             ),
+
+
             const SizedBox(
               height: 24,
             ),
+
+
             SizedBox(
               height: 56,
-              child: _tracking
-                  ? FilledButton.icon(
-                      style:
-                          FilledButton
-                              .styleFrom(
-                        backgroundColor:
-                            const Color(
-                          0xFFDC2626,
+
+              child:
+                  _tracking
+
+                      ? FilledButton.icon(
+                          style:
+                              FilledButton
+                                  .styleFrom(
+                            backgroundColor:
+                                const Color(
+                              0xFFDC2626,
+                            ),
+                          ),
+
+                          onPressed:
+                              _stopTracking,
+
+                          icon:
+                              const Icon(
+                            Icons.stop,
+                          ),
+
+                          label:
+                              const Text(
+                            'DETENER TRANSMISIÓN',
+                          ),
+                        )
+
+                      : FilledButton.icon(
+                          style:
+                              FilledButton
+                                  .styleFrom(
+                            backgroundColor:
+                                const Color(
+                              0xFF16A34A,
+                            ),
+                          ),
+
+                          onPressed:
+                              _startTracking,
+
+                          icon:
+                              const Icon(
+                            Icons.play_arrow,
+                          ),
+
+                          label:
+                              const Text(
+                            'INICIAR TRANSMISIÓN',
+                          ),
                         ),
-                      ),
-                      onPressed:
-                          _stopTracking,
-                      icon:
-                          const Icon(
-                        Icons.stop,
-                      ),
-                      label:
-                          const Text(
-                        'DETENER TRANSMISIÓN',
-                      ),
-                    )
-                  : FilledButton.icon(
-                      style:
-                          FilledButton
-                              .styleFrom(
-                        backgroundColor:
-                            const Color(
-                          0xFF16A34A,
-                        ),
-                      ),
-                      onPressed:
-                          _startTracking,
-                      icon:
-                          const Icon(
-                        Icons.play_arrow,
-                      ),
-                      label:
-                          const Text(
-                        'INICIAR TRANSMISIÓN',
-                      ),
-                    ),
             ),
           ],
         ),

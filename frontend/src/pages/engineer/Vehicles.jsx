@@ -11,6 +11,7 @@ import AppLayout
   from "../../components/layout/AppLayout";
 
 import {
+  deleteVehicle,
   getVehicles
 } from "../../services/vehicleService";
 
@@ -30,8 +31,18 @@ export default function Vehicles() {
   ] = useState(true);
 
   const [
+    deletingVehicleId,
+    setDeletingVehicleId
+  ] = useState(null);
+
+  const [
     error,
     setError
+  ] = useState("");
+
+  const [
+    successMessage,
+    setSuccessMessage
   ] = useState("");
 
 
@@ -69,18 +80,77 @@ export default function Vehicles() {
   }
 
 
+  async function handleDeleteVehicle(
+    vehicle
+  ) {
+    const confirmed =
+      window.confirm(
+        `¿Eliminar permanentemente el vehículo ${vehicle.vehicle_code}?\n\n` +
+        "También se eliminarán el dispositivo, las ubicaciones y las estadísticas asociadas.\n\n" +
+        "Esta acción no se puede deshacer."
+      );
+
+    if (!confirmed) {
+      return;
+    }
+
+
+    setDeletingVehicleId(
+      vehicle.id
+    );
+
+    setError("");
+    setSuccessMessage("");
+
+
+    try {
+      await deleteVehicle(
+        vehicle.id
+      );
+
+      setVehicles(
+        (previous) =>
+          previous.filter(
+            (item) =>
+              item.id !==
+              vehicle.id
+          )
+      );
+
+      setSuccessMessage(
+        `El vehículo ${vehicle.vehicle_code} fue eliminado correctamente.`
+      );
+
+    } catch (error) {
+      setError(
+        error.message ||
+        "No fue posible eliminar el vehículo."
+      );
+
+    } finally {
+      setDeletingVehicleId(
+        null
+      );
+    }
+  }
+
+
   return (
     <AppLayout>
       <section>
+
         <div
           style={{
             display: "flex",
             alignItems: "center",
-            justifyContent: "space-between",
+            justifyContent:
+              "space-between",
             marginBottom: "24px",
-            gap: "16px"
+            gap: "16px",
+            flexWrap: "wrap"
           }}
         >
+
           <div>
             <h2
               style={{
@@ -103,6 +173,7 @@ export default function Vehicles() {
             </p>
           </div>
 
+
           <button
             type="button"
             onClick={
@@ -113,17 +184,35 @@ export default function Vehicles() {
               borderRadius: "9px",
               padding: "12px 16px",
               fontWeight: 700,
-              cursor: "pointer"
+              cursor: "pointer",
+              background: "#2563eb",
+              color: "#ffffff"
             }}
           >
             Nuevo vehículo
           </button>
+
         </div>
 
 
         {loading && (
           <div>
             Cargando vehículos...
+          </div>
+        )}
+
+
+        {successMessage && (
+          <div
+            style={{
+              padding: "14px",
+              borderRadius: "10px",
+              background: "#dcfce7",
+              color: "#166534",
+              marginBottom: "18px"
+            }}
+          >
+            {successMessage}
           </div>
         )}
 
@@ -151,7 +240,8 @@ export default function Vehicles() {
                 background: "#ffffff",
                 padding: "22px",
                 borderRadius: "14px",
-                border: "1px solid #e2e8f0"
+                border:
+                  "1px solid #e2e8f0"
               }}
             >
               No hay vehículos registrados.
@@ -160,8 +250,8 @@ export default function Vehicles() {
 
 
         {!loading &&
-          !error &&
           vehicles.length > 0 && (
+
             <div
               style={{
                 display: "grid",
@@ -170,11 +260,15 @@ export default function Vehicles() {
                 gap: "18px"
               }}
             >
+
               {
                 vehicles.map(
                   (vehicle) => (
+
                     <article
-                      key={vehicle.id}
+                      key={
+                        vehicle.id
+                      }
                       style={{
                         background: "#ffffff",
                         border:
@@ -183,6 +277,7 @@ export default function Vehicles() {
                         padding: "20px"
                       }}
                     >
+
                       <div
                         style={{
                           display: "flex",
@@ -194,7 +289,9 @@ export default function Vehicles() {
                           marginBottom: "16px"
                         }}
                       >
+
                         <div>
+
                           <div
                             style={{
                               fontSize: "22px",
@@ -217,18 +314,26 @@ export default function Vehicles() {
                               "Sin placa"
                             }
                           </div>
+
                         </div>
+
 
                         <span
                           style={{
-                            padding: "6px 10px",
-                            borderRadius: "999px",
-                            fontSize: "13px",
-                            fontWeight: 700,
+                            padding:
+                              "6px 10px",
+                            borderRadius:
+                              "999px",
+                            fontSize:
+                              "13px",
+                            fontWeight:
+                              700,
+
                             background:
                               vehicle.active
                                 ? "#dcfce7"
                                 : "#fee2e2",
+
                             color:
                               vehicle.active
                                 ? "#166534"
@@ -241,6 +346,7 @@ export default function Vehicles() {
                               : "Inactivo"
                           }
                         </span>
+
                       </div>
 
 
@@ -251,11 +357,14 @@ export default function Vehicles() {
                           fontSize: "14px"
                         }}
                       >
+
                         <div>
                           <strong>
                             Cliente ID:
                           </strong>{" "}
-                          {vehicle.client_id}
+                          {
+                            vehicle.client_id
+                          }
                         </div>
 
                         <div>
@@ -287,13 +396,73 @@ export default function Vehicles() {
                             "—"
                           }
                         </div>
+
                       </div>
+
+
+                      <div
+                        style={{
+                          marginTop: "18px",
+                          paddingTop: "16px",
+                          borderTop:
+                            "1px solid #e2e8f0"
+                        }}
+                      >
+
+                        <button
+                          type="button"
+                          onClick={
+                            () =>
+                              handleDeleteVehicle(
+                                vehicle
+                              )
+                          }
+                          disabled={
+                            deletingVehicleId ===
+                            vehicle.id
+                          }
+                          style={{
+                            width: "100%",
+                            border:
+                              "1px solid #dc2626",
+                            borderRadius:
+                              "9px",
+                            padding:
+                              "10px 14px",
+                            background:
+                              "#ffffff",
+                            color:
+                              "#dc2626",
+                            fontWeight:
+                              700,
+
+                            cursor:
+                              deletingVehicleId ===
+                              vehicle.id
+                                ? "not-allowed"
+                                : "pointer"
+                          }}
+                        >
+                          {
+                            deletingVehicleId ===
+                            vehicle.id
+                              ? "Eliminando..."
+                              : "🗑 Eliminar vehículo"
+                          }
+                        </button>
+
+                      </div>
+
                     </article>
+
                   )
                 )
               }
+
             </div>
+
           )}
+
       </section>
     </AppLayout>
   );
