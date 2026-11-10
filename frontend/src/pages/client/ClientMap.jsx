@@ -39,20 +39,20 @@ function getLocalDate() {
 }
 
 
-function getLocalTime() {
+function getCurrentTime() {
   const now = new Date();
 
-  const hours =
+  const hour =
     String(
       now.getHours()
     ).padStart(2, "0");
 
-  const minutes =
+  const minute =
     String(
       now.getMinutes()
     ).padStart(2, "0");
 
-  return `${hours}:${minutes}`;
+  return `${hour}:${minute}`;
 }
 
 
@@ -78,8 +78,8 @@ export default function ClientMap() {
   ] = useState("");
 
   const [
-    location,
-    setLocation
+    latestLocation,
+    setLatestLocation
   ] = useState(null);
 
   const [
@@ -88,8 +88,8 @@ export default function ClientMap() {
   ] = useState([]);
 
   const [
-    selectedDate,
-    setSelectedDate
+    date,
+    setDate
   ] = useState(
     getLocalDate()
   );
@@ -103,7 +103,7 @@ export default function ClientMap() {
     endTime,
     setEndTime
   ] = useState(
-    getLocalTime()
+    getCurrentTime()
   );
 
   const [
@@ -112,8 +112,13 @@ export default function ClientMap() {
   ] = useState(true);
 
   const [
-    searchLoading,
-    setSearchLoading
+    refreshing,
+    setRefreshing
+  ] = useState(false);
+
+  const [
+    routeLoading,
+    setRouteLoading
   ] = useState(false);
 
   const [
@@ -121,27 +126,20 @@ export default function ClientMap() {
     setError
   ] = useState("");
 
+  const [
+    message,
+    setMessage
+  ] = useState("");
 
-  const selectedVehicle =
-    vehicles.find(
-      (vehicle) =>
-        vehicle.id ===
-        Number(selectedVehicleId)
-    ) || null;
+  const [
+    lastRefresh,
+    setLastRefresh
+  ] = useState(null);
 
 
   useEffect(() => {
     loadVehicles();
   }, []);
-
-
-  useEffect(() => {
-    if (selectedVehicleId) {
-      loadVehicleData(
-        selectedVehicleId
-      );
-    }
-  }, [selectedVehicleId]);
 
 
   async function loadVehicles() {
@@ -155,8 +153,15 @@ export default function ClientMap() {
       setVehicles(data);
 
       if (data.length > 0) {
+        const firstVehicleId =
+          String(data[0].id);
+
         setSelectedVehicleId(
-          String(data[0].id)
+          firstVehicleId
+        );
+
+        await loadLatestLocation(
+          firstVehicleId
         );
       }
 
@@ -172,136 +177,84 @@ export default function ClientMap() {
   }
 
 
-  async function loadVehicleData(
+  async function loadLatestLocation(
     vehicleId
   ) {
-    setSearchLoading(true);
+    if (!vehicleId) {
+      return;
+    }
+
+    setRefreshing(true);
     setError("");
-
-    let latestLocation = null;
-    let historyLocations = [];
-
+    setMessage("");
 
     try {
-      try {
-        latestLocation =
-          await getLatestLocation(
-            vehicleId
-          );
-
-      } catch {
-        latestLocation = null;
-      }
-
-
-      const start =
-        buildIsoDateTime(
-          selectedDate,
-          startTime
+      const location =
+        await getLatestLocation(
+          vehicleId
         );
 
-      const end =
-        buildIsoDateTime(
-          selectedDate,
-          endTime
-        );
-
-
-      if (
-        new Date(start) >=
-        new Date(end)
-      ) {
-        throw new Error(
-          "La hora inicial debe ser menor que la hora final."
-        );
-      }
-
-
-      try {
-        const history =
-          await getVehicleHistory(
-            vehicleId,
-            start,
-            end
-          );
-
-        historyLocations =
-          Array.isArray(
-            history?.locations
-          )
-            ? [
-                ...history.locations
-              ].sort(
-                (a, b) =>
-                  new Date(
-                    a.timestamp
-                  ) -
-                  new Date(
-                    b.timestamp
-                  )
-              )
-            : [];
-
-      } catch {
-        historyLocations = [];
-      }
-
-
-      setRoutePoints(
-        historyLocations
+      setLatestLocation(
+        location
       );
 
+      /*
+       * Al actualizar la ubicación actual,
+       * limpiamos una ruta histórica anterior.
+       */
+      setRoutePoints([]);
 
-      if (
-        !latestLocation &&
-        historyLocations.length > 0
-      ) {
-        latestLocation =
-          historyLocations[
-            historyLocations.length - 1
-          ];
-      }
-
-
-      setLocation(
-        latestLocation
+      setLastRefresh(
+        new Date()
       );
 
-
-      if (
-        !latestLocation &&
-        historyLocations.length === 0
-      ) {
-        setError(
-          "No se encontraron posiciones para este vehículo en el rango seleccionado."
-        );
-      }
+      setMessage(
+        "Ubicación actualizada correctamente."
+      );
 
     } catch (error) {
-      setLocation(null);
-      setRoutePoints([]);
+      setLatestLocation(null);
 
       setError(
         error.message ||
-        "No fue posible consultar el recorrido."
+        "No fue posible consultar la ubicación actual."
       );
 
     } finally {
-      setSearchLoading(false);
+      setRefreshing(false);
     }
   }
 
 
-  function handleVehicleChange(
+  async function handleVehicleChange(
     event
   ) {
+    const vehicleId =
+      event.target.value;
+
     setSelectedVehicleId(
-      event.target.value
+      vehicleId
+    );
+
+    setLatestLocation(null);
+    setRoutePoints([]);
+    setMessage("");
+    setError("");
+
+    await loadLatestLocation(
+      vehicleId
     );
   }
 
 
-  function handleSearch(
+  async function handleRefresh() {
+    await loadLatestLocation(
+      selectedVehicleId
+    );
+  }
+
+
+  async function handleRouteSearch(
     event
   ) {
     event.preventDefault();
@@ -310,15 +263,117 @@ export default function ClientMap() {
       return;
     }
 
-    loadVehicleData(
-      selectedVehicleId
-    );
+    setRouteLoading(true);
+    setError("");
+    setMessage("");
+
+    try {
+      const start =
+        buildIsoDateTime(
+          date,
+          startTime
+        );
+
+      const end =
+        buildIsoDateTime(
+          date,
+          endTime
+        );
+
+      if (
+        new Date(start) >=
+        new Date(end)
+      ) {
+        throw new Error(
+          "La hora inicial debe ser anterior a la hora final."
+        );
+      }
+
+      const history =
+        await getVehicleHistory(
+          selectedVehicleId,
+          start,
+          end
+        );
+
+      const locations =
+        Array.isArray(
+          history.locations
+        )
+          ? history.locations
+          : [];
+
+      const sortedLocations =
+        [...locations].sort(
+          (a, b) =>
+            new Date(
+              a.timestamp
+            ) -
+            new Date(
+              b.timestamp
+            )
+        );
+
+      setRoutePoints(
+        sortedLocations
+      );
+
+      if (
+        sortedLocations.length > 0
+      ) {
+        setMessage(
+          `Recorrido encontrado: ${sortedLocations.length} posiciones registradas.`
+        );
+      } else {
+        setMessage(
+          "No se encontraron posiciones en el rango seleccionado."
+        );
+      }
+
+    } catch (error) {
+      setRoutePoints([]);
+
+      setError(
+        error.message ||
+        "No fue posible consultar el recorrido."
+      );
+
+    } finally {
+      setRouteLoading(false);
+    }
   }
+
+
+  const selectedVehicle =
+    vehicles.find(
+      (vehicle) =>
+        String(vehicle.id) ===
+        String(
+          selectedVehicleId
+        )
+    );
+
+
+  /*
+   * Si estamos viendo un recorrido histórico,
+   * utilizamos como marcador principal el último
+   * punto de ese recorrido.
+   *
+   * Si no hay recorrido, mostramos la última
+   * ubicación actual conocida.
+   */
+  const displayLocation =
+    routePoints.length > 0
+      ? routePoints[
+          routePoints.length - 1
+        ]
+      : latestLocation;
 
 
   return (
     <AppLayout>
       <section>
+
         <div
           style={{
             marginBottom: "24px"
@@ -330,7 +385,7 @@ export default function ClientMap() {
               fontSize: "28px"
             }}
           >
-            Seguimiento y recorrido
+            Mapa
           </h2>
 
           <p
@@ -339,9 +394,9 @@ export default function ClientMap() {
               color: "#64748b"
             }}
           >
-            Consulta la ubicación y el recorrido
-            de tus vehículos por fecha y rango
-            horario.
+            Consulta la ubicación actual
+            y los recorridos registrados
+            de tus vehículos autorizados.
           </p>
         </div>
 
@@ -351,177 +406,6 @@ export default function ClientMap() {
             Cargando vehículos...
           </div>
         )}
-
-
-        {!loading &&
-          vehicles.length > 0 && (
-            <form
-              onSubmit={handleSearch}
-              style={{
-                background: "#ffffff",
-                border:
-                  "1px solid #e2e8f0",
-                borderRadius: "14px",
-                padding: "20px",
-                marginBottom: "22px"
-              }}
-            >
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns:
-                    "repeat(auto-fit, minmax(180px, 1fr))",
-                  gap: "16px"
-                }}
-              >
-                <div>
-                  <label
-                    htmlFor="vehicle"
-                    style={labelStyle}
-                  >
-                    Vehículo
-                  </label>
-
-                  <select
-                    id="vehicle"
-                    value={
-                      selectedVehicleId
-                    }
-                    onChange={
-                      handleVehicleChange
-                    }
-                    style={inputStyle}
-                  >
-                    {
-                      vehicles.map(
-                        (vehicle) => (
-                          <option
-                            key={
-                              vehicle.id
-                            }
-                            value={
-                              vehicle.id
-                            }
-                          >
-                            {
-                              vehicle.vehicle_code
-                            }
-                            {" - "}
-                            {
-                              vehicle.plate ||
-                              "Sin placa"
-                            }
-                          </option>
-                        )
-                      )
-                    }
-                  </select>
-                </div>
-
-
-                <div>
-                  <label
-                    htmlFor="date"
-                    style={labelStyle}
-                  >
-                    Fecha
-                  </label>
-
-                  <input
-                    id="date"
-                    type="date"
-                    value={
-                      selectedDate
-                    }
-                    onChange={
-                      (event) =>
-                        setSelectedDate(
-                          event.target.value
-                        )
-                    }
-                    style={inputStyle}
-                  />
-                </div>
-
-
-                <div>
-                  <label
-                    htmlFor="startTime"
-                    style={labelStyle}
-                  >
-                    Hora inicial
-                  </label>
-
-                  <input
-                    id="startTime"
-                    type="time"
-                    value={
-                      startTime
-                    }
-                    onChange={
-                      (event) =>
-                        setStartTime(
-                          event.target.value
-                        )
-                    }
-                    style={inputStyle}
-                  />
-                </div>
-
-
-                <div>
-                  <label
-                    htmlFor="endTime"
-                    style={labelStyle}
-                  >
-                    Hora final
-                  </label>
-
-                  <input
-                    id="endTime"
-                    type="time"
-                    value={
-                      endTime
-                    }
-                    onChange={
-                      (event) =>
-                        setEndTime(
-                          event.target.value
-                        )
-                    }
-                    style={inputStyle}
-                  />
-                </div>
-              </div>
-
-
-              <button
-                type="submit"
-                disabled={
-                  searchLoading
-                }
-                style={{
-                  marginTop: "18px",
-                  padding: "11px 18px",
-                  border: "none",
-                  borderRadius: "9px",
-                  background: "#2563eb",
-                  color: "#ffffff",
-                  fontWeight: 700,
-                  cursor:
-                    searchLoading
-                      ? "not-allowed"
-                      : "pointer"
-                }}
-              >
-                {
-                  searchLoading
-                    ? "Consultando..."
-                    : "Consultar recorrido"
-                }
-              </button>
-            </form>
-          )}
 
 
         {error && (
@@ -539,177 +423,450 @@ export default function ClientMap() {
         )}
 
 
+        {message && (
+          <div
+            style={{
+              padding: "14px",
+              borderRadius: "10px",
+              background: "#eff6ff",
+              color: "#1d4ed8",
+              marginBottom: "18px"
+            }}
+          >
+            {message}
+          </div>
+        )}
+
+
         {!loading &&
           vehicles.length === 0 && (
             <div
               style={{
+                padding: "20px",
                 background: "#ffffff",
-                padding: "22px",
-                borderRadius: "14px",
                 border:
-                  "1px solid #e2e8f0"
+                  "1px solid #e2e8f0",
+                borderRadius: "14px"
               }}
             >
-              No tienes vehículos autorizados.
+              No tienes vehículos
+              asignados.
             </div>
           )}
 
 
-        {selectedVehicle &&
-          location && (
+        {!loading &&
+          vehicles.length > 0 && (
             <>
+
               <div
                 style={{
-                  display: "grid",
-                  gridTemplateColumns:
-                    "repeat(auto-fit, minmax(150px, 1fr))",
-                  gap: "14px",
+                  background: "#ffffff",
+                  border:
+                    "1px solid #e2e8f0",
+                  borderRadius: "14px",
+                  padding: "20px",
                   marginBottom: "20px"
                 }}
               >
-                <InfoCard
-                  label="Vehículo"
-                  value={
-                    selectedVehicle.vehicle_code
-                  }
-                />
 
-                <InfoCard
-                  label="Posiciones"
-                  value={
-                    routePoints.length
-                  }
-                />
-
-                <InfoCard
-                  label="Velocidad"
-                  value={
-                    location.speed ??
-                    "—"
-                  }
-                  unit="km/h"
-                />
-
-                <InfoCard
-                  label="Altitud"
-                  value={
-                    location.altitude ??
-                    "—"
-                  }
-                  unit="m"
-                />
-
-                <InfoCard
-                  label="Rumbo"
-                  value={
-                    location.heading ??
-                    "—"
-                  }
-                  unit="°"
-                />
-              </div>
-
-
-              <div
-                style={{
-                  padding:
-                    "12px 14px",
-                  marginBottom: "12px",
-                  borderRadius: "10px",
-                  background:
-                    routePoints.length >= 2
-                      ? "#eff6ff"
-                      : "#f8fafc",
-                  color:
-                    routePoints.length >= 2
-                      ? "#1d4ed8"
-                      : "#64748b",
-                  fontWeight: 600,
-                  fontSize: "14px"
-                }}
-              >
-                {
-                  routePoints.length >= 2
-                    ? `Se encontraron ${routePoints.length} posiciones. La línea azul representa el recorrido del vehículo durante el periodo seleccionado.`
-                    : routePoints.length === 1
-                      ? "Solo existe una posición en este periodo. Se necesitan al menos dos posiciones para dibujar una ruta."
-                      : "No existen posiciones dentro del periodo seleccionado. Se muestra únicamente la última ubicación conocida."
-                }
-              </div>
-
-
-              <VehicleMap
-                latitude={
-                  location.latitude
-                }
-                longitude={
-                  location.longitude
-                }
-                vehicleCode={
-                  selectedVehicle.vehicle_code
-                }
-                plate={
-                  selectedVehicle.plate
-                }
-                speed={
-                  location.speed
-                }
-                altitude={
-                  location.altitude
-                }
-                routePoints={
-                  routePoints
-                }
-              />
-
-
-              <div
-                style={{
-                  marginTop: "14px",
-                  color: "#64748b",
-                  fontSize: "13px"
-                }}
-              >
-                Última posición conocida:{" "}
-                {
-                  new Date(
-                    location.timestamp
-                  ).toLocaleString()
-                }
-              </div>
-
-
-              {routePoints.length > 0 && (
                 <div
                   style={{
-                    marginTop: "8px",
-                    color: "#64748b",
-                    fontSize: "13px"
+                    display: "grid",
+                    gridTemplateColumns:
+                      "minmax(220px, 1fr) auto",
+                    gap: "14px",
+                    alignItems: "end"
                   }}
                 >
-                  Inicio del recorrido consultado:{" "}
-                  {
-                    new Date(
-                      routePoints[0]
-                        .timestamp
-                    ).toLocaleString()
-                  }
 
-                  {" — "}
+                  <div>
+                    <label
+                      htmlFor="vehicle"
+                      style={{
+                        display: "block",
+                        marginBottom: "7px",
+                        fontWeight: 600
+                      }}
+                    >
+                      Vehículo
+                    </label>
 
-                  Fin del recorrido consultado:{" "}
+                    <select
+                      id="vehicle"
+                      value={
+                        selectedVehicleId
+                      }
+                      onChange={
+                        handleVehicleChange
+                      }
+                      style={
+                        inputStyle
+                      }
+                    >
+                      {
+                        vehicles.map(
+                          (vehicle) => (
+                            <option
+                              key={
+                                vehicle.id
+                              }
+                              value={
+                                vehicle.id
+                              }
+                            >
+                              {
+                                vehicle.vehicle_code
+                              }
+                              {" - "}
+                              {
+                                vehicle.plate ||
+                                "Sin placa"
+                              }
+                            </option>
+                          )
+                        )
+                      }
+                    </select>
+                  </div>
 
-                  {
-                    new Date(
-                      routePoints[
-                        routePoints.length - 1
-                      ].timestamp
-                    ).toLocaleString()
-                  }
+
+                  <button
+                    type="button"
+                    onClick={
+                      handleRefresh
+                    }
+                    disabled={
+                      refreshing
+                    }
+                    style={{
+                      border: "none",
+                      borderRadius: "9px",
+                      padding:
+                        "12px 18px",
+                      minHeight: "44px",
+                      cursor:
+                        refreshing
+                          ? "not-allowed"
+                          : "pointer",
+                      background:
+                        "#2563eb",
+                      color:
+                        "#ffffff",
+                      fontWeight: 700
+                    }}
+                  >
+                    {
+                      refreshing
+                        ? "Actualizando..."
+                        : "↻ Actualizar ubicación"
+                    }
+                  </button>
+
                 </div>
+
+
+                {lastRefresh && (
+                  <div
+                    style={{
+                      marginTop: "10px",
+                      color: "#64748b",
+                      fontSize: "13px"
+                    }}
+                  >
+                    Última consulta:{" "}
+                    {
+                      lastRefresh
+                        .toLocaleString()
+                    }
+                  </div>
+                )}
+
+              </div>
+
+
+              <form
+                onSubmit={
+                  handleRouteSearch
+                }
+                style={{
+                  background: "#ffffff",
+                  border:
+                    "1px solid #e2e8f0",
+                  borderRadius: "14px",
+                  padding: "20px",
+                  marginBottom: "20px"
+                }}
+              >
+
+                <h3
+                  style={{
+                    marginTop: 0,
+                    marginBottom: "18px"
+                  }}
+                >
+                  Consultar recorrido
+                </h3>
+
+
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns:
+                      "repeat(auto-fit, minmax(180px, 1fr))",
+                    gap: "14px"
+                  }}
+                >
+
+                  <div>
+                    <label
+                      htmlFor="date"
+                      style={
+                        labelStyle
+                      }
+                    >
+                      Fecha
+                    </label>
+
+                    <input
+                      id="date"
+                      type="date"
+                      value={date}
+                      onChange={
+                        (event) =>
+                          setDate(
+                            event.target.value
+                          )
+                      }
+                      style={
+                        inputStyle
+                      }
+                    />
+                  </div>
+
+
+                  <div>
+                    <label
+                      htmlFor="startTime"
+                      style={
+                        labelStyle
+                      }
+                    >
+                      Hora inicial
+                    </label>
+
+                    <input
+                      id="startTime"
+                      type="time"
+                      value={
+                        startTime
+                      }
+                      onChange={
+                        (event) =>
+                          setStartTime(
+                            event.target.value
+                          )
+                      }
+                      style={
+                        inputStyle
+                      }
+                    />
+                  </div>
+
+
+                  <div>
+                    <label
+                      htmlFor="endTime"
+                      style={
+                        labelStyle
+                      }
+                    >
+                      Hora final
+                    </label>
+
+                    <input
+                      id="endTime"
+                      type="time"
+                      value={
+                        endTime
+                      }
+                      onChange={
+                        (event) =>
+                          setEndTime(
+                            event.target.value
+                          )
+                      }
+                      style={
+                        inputStyle
+                      }
+                    />
+                  </div>
+
+                </div>
+
+
+                <button
+                  type="submit"
+                  disabled={
+                    routeLoading
+                  }
+                  style={{
+                    marginTop: "18px",
+                    border: "none",
+                    borderRadius: "9px",
+                    padding:
+                      "12px 18px",
+                    cursor:
+                      routeLoading
+                        ? "not-allowed"
+                        : "pointer",
+                    background:
+                      "#2563eb",
+                    color:
+                      "#ffffff",
+                    fontWeight: 700
+                  }}
+                >
+                  {
+                    routeLoading
+                      ? "Consultando..."
+                      : "Consultar recorrido"
+                  }
+                </button>
+
+              </form>
+
+
+              {displayLocation && (
+                <>
+
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns:
+                        "repeat(auto-fit, minmax(160px, 1fr))",
+                      gap: "14px",
+                      marginBottom: "20px"
+                    }}
+                  >
+
+                    <InfoCard
+                      label="Vehículo"
+                      value={
+                        selectedVehicle
+                          ?.vehicle_code ||
+                        "—"
+                      }
+                    />
+
+                    <InfoCard
+                      label="Posiciones"
+                      value={
+                        routePoints.length > 0
+                          ? routePoints.length
+                          : 1
+                      }
+                    />
+
+                    <InfoCard
+                      label="Velocidad"
+                      value={
+                        displayLocation
+                          .speed ??
+                        "—"
+                      }
+                      unit="km/h"
+                    />
+
+                    <InfoCard
+                      label="Altitud"
+                      value={
+                        displayLocation
+                          .altitude ??
+                        "—"
+                      }
+                      unit="m"
+                    />
+
+                    <InfoCard
+                      label="Rumbo"
+                      value={
+                        displayLocation
+                          .heading ??
+                        "—"
+                      }
+                      unit="°"
+                    />
+
+                  </div>
+
+
+                  <VehicleMap
+                    latitude={
+                      displayLocation
+                        .latitude
+                    }
+                    longitude={
+                      displayLocation
+                        .longitude
+                    }
+                    vehicleCode={
+                      selectedVehicle
+                        ?.vehicle_code
+                    }
+                    plate={
+                      selectedVehicle
+                        ?.plate
+                    }
+                    speed={
+                      displayLocation
+                        .speed
+                    }
+                    altitude={
+                      displayLocation
+                        .altitude
+                    }
+                    routePoints={
+                      routePoints
+                    }
+                  />
+
+
+                  <div
+                    style={{
+                      marginTop: "14px",
+                      color: "#64748b",
+                      fontSize: "13px",
+                      textAlign: "center"
+                    }}
+                  >
+                    {
+                      routePoints.length > 0
+                        ? (
+                          `Último punto del recorrido: ${
+                            new Date(
+                              displayLocation
+                                .timestamp
+                            ).toLocaleString()
+                          }`
+                        )
+                        : (
+                          `Última posición conocida: ${
+                            new Date(
+                              displayLocation
+                                .timestamp
+                            ).toLocaleString()
+                          }`
+                        )
+                    }
+                  </div>
+
+                </>
               )}
+
             </>
           )}
+
       </section>
     </AppLayout>
   );
@@ -731,6 +888,7 @@ function InfoCard({
         padding: "16px"
       }}
     >
+
       <div
         style={{
           color: "#64748b",
@@ -741,10 +899,13 @@ function InfoCard({
         {label}
       </div>
 
+
       <div
         style={{
-          fontSize: "20px",
-          fontWeight: 700
+          fontSize: "19px",
+          fontWeight: 700,
+          overflowWrap:
+            "anywhere"
         }}
       >
         {value}
@@ -756,6 +917,7 @@ function InfoCard({
             : ""
         }
       </div>
+
     </div>
   );
 }
@@ -764,17 +926,17 @@ function InfoCard({
 const labelStyle = {
   display: "block",
   marginBottom: "7px",
-  fontWeight: 600,
-  color: "#475569"
+  fontWeight: 600
 };
 
 
 const inputStyle = {
   width: "100%",
-  padding: "11px",
   boxSizing: "border-box",
-  borderRadius: "9px",
   border:
     "1px solid #cbd5e1",
-  background: "#ffffff"
+  borderRadius: "9px",
+  padding: "11px 12px",
+  background: "#ffffff",
+  fontSize: "14px"
 };
